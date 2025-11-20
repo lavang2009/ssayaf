@@ -53,6 +53,18 @@ function setCache(key, value) {
 const parser = new Parser({ timeout: 7000 });
 
 // ==============================
+// Helper: Extract first image from content HTML
+// ==============================
+function extractImageFromContent(content) {
+  if (!content) return null;
+  const imgMatch = content.match(/<img[^>]+src="([^">]+)"/i);
+  if (imgMatch && imgMatch[1]) {
+    return imgMatch[1];
+  }
+  return null;
+}
+
+// ==============================
 // Helper: Filter by hours
 // ==============================
 function filterByHours(items, hours) {
@@ -60,7 +72,7 @@ function filterByHours(items, hours) {
 
   const limitTime = Date.now() - hours * 60 * 60 * 1000;
 
-  return items.filter(item => {
+  return items.filter((item) => {
     const time = new Date(item.pubDate).getTime();
     return !isNaN(time) && time >= limitTime;
   });
@@ -86,13 +98,25 @@ app.get("/rss/:source", async (req, res) => {
 
     const feed = await parser.parseURL(source.url);
 
-    let items = feed.items.slice(0, 50).map(item => ({
-      title: item.title,
-      link: item.link,
-      pubDate: item.pubDate,
-      contentSnippet: item.contentSnippet || item.summary || null,
-      source: source.name,
-    }));
+    let items = feed.items.slice(0, 50).map((item) => {
+      // Lấy ảnh ưu tiên từ enclosure, nếu không có thì lấy từ content
+      let image = null;
+      if (item.enclosure && (item.enclosure.url || item.enclosure.link)) {
+        image = item.enclosure.url || item.enclosure.link;
+      }
+      if (!image) {
+        image = extractImageFromContent(item.content || item.contentSnippet || item.summary);
+      }
+
+      return {
+        title: item.title,
+        link: item.link,
+        pubDate: item.pubDate,
+        contentSnippet: item.contentSnippet || item.summary || null,
+        source: source.name,
+        image,
+      };
+    });
 
     items = filterByHours(items, hours);
 
@@ -104,7 +128,6 @@ app.get("/rss/:source", async (req, res) => {
 
     setCache(cacheKey, response);
     res.json(response);
-
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Không thể lấy RSS" });
@@ -128,16 +151,27 @@ app.get("/rss/all", async (req, res) => {
       try {
         const feed = await parser.parseURL(src.url);
 
-        const items = feed.items.slice(0, 50).map(item => ({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate,
-          contentSnippet: item.contentSnippet || item.summary || null,
-          source: src.name,
-        }));
+        const items = feed.items.slice(0, 50).map((item) => {
+          // Lấy ảnh ưu tiên từ enclosure, nếu không có thì lấy từ content
+          let image = null;
+          if (item.enclosure && (item.enclosure.url || item.enclosure.link)) {
+            image = item.enclosure.url || item.enclosure.link;
+          }
+          if (!image) {
+            image = extractImageFromContent(item.content || item.contentSnippet || item.summary);
+          }
+
+          return {
+            title: item.title,
+            link: item.link,
+            pubDate: item.pubDate,
+            contentSnippet: item.contentSnippet || item.summary || null,
+            source: src.name,
+            image,
+          };
+        });
 
         allItems.push(...items);
-
       } catch (e) {
         console.log(`Lỗi lấy RSS từ ${src.name}`);
       }
@@ -157,7 +191,6 @@ app.get("/rss/all", async (req, res) => {
 
     setCache(cacheKey, response);
     res.json(response);
-
   } catch (e) {
     res.status(500).json({ error: "Không thể tổng hợp RSS" });
   }
@@ -177,21 +210,34 @@ app.get("/rss/search", async (req, res) => {
     for (const src of Object.values(rssSources)) {
       try {
         const feed = await parser.parseURL(src.url);
-        const items = feed.items.map(item => ({
-          title: item.title,
-          link: item.link,
-          pubDate: item.pubDate,
-          contentSnippet: item.contentSnippet || item.summary || null,
-          source: src.name,
-        }));
+        const items = feed.items.map((item) => {
+          // Lấy ảnh ưu tiên từ enclosure, nếu không có thì lấy từ content
+          let image = null;
+          if (item.enclosure && (item.enclosure.url || item.enclosure.link)) {
+            image = item.enclosure.url || item.enclosure.link;
+          }
+          if (!image) {
+            image = extractImageFromContent(item.content || item.contentSnippet || item.summary);
+          }
+
+          return {
+            title: item.title,
+            link: item.link,
+            pubDate: item.pubDate,
+            contentSnippet: item.contentSnippet || item.summary || null,
+            source: src.name,
+            image,
+          };
+        });
         allItems.push(...items);
       } catch {}
     }
 
     // Search keyword title + snippet
-    const filtered = allItems.filter(item =>
-      item.title.toLowerCase().includes(q) ||
-      (item.contentSnippet || "").toLowerCase().includes(q)
+    const filtered = allItems.filter(
+      (item) =>
+        item.title.toLowerCase().includes(q) ||
+        (item.contentSnippet || "").toLowerCase().includes(q)
     );
 
     res.json({
@@ -199,7 +245,6 @@ app.get("/rss/search", async (req, res) => {
       total: filtered.length,
       items: filtered,
     });
-
   } catch (e) {
     res.status(500).json({ error: "Không thể tìm kiếm" });
   }
